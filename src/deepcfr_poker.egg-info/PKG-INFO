@@ -1,3 +1,47 @@
+Metadata-Version: 2.4
+Name: deepcfr-poker
+Version: 0.3.0
+Summary: Deep CFR Poker AI with Opponent Modeling
+Home-page: https://github.com/dberweger2017/deepcfr-texas-no-limit-holdem-6-players
+Author: Davide Berweger Gaillard
+Author-email: davide@davideb.ch
+Project-URL: Bug Tracker, https://github.com/dberweger2017/deepcfr-texas-no-limit-holdem-6-players/issues
+Project-URL: Documentation, https://github.com/dberweger2017/deepcfr-texas-no-limit-holdem-6-players#readme
+Project-URL: Source Code, https://github.com/dberweger2017/deepcfr-texas-no-limit-holdem-6-players
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Intended Audience :: Science/Research
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE.txt
+Requires-Dist: torch>=2.5.1
+Requires-Dist: numpy>=1.26.4
+Requires-Dist: matplotlib>=3.9.0
+Requires-Dist: tensorboard>=2.18.0
+Requires-Dist: argparse
+Requires-Dist: tqdm>=4.67.0
+Requires-Dist: pokers-db>=2.2
+Requires-Dist: python-dotenv>=1.0.1
+Requires-Dist: requests>=2.32.3
+Requires-Dist: seaborn>=0.13.2
+Requires-Dist: pandas>=2.2.2
+Requires-Dist: PyQt5==5.15.11
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: license-file
+Dynamic: project-url
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
 # DeepCFR Poker AI
 
 ## Project Update (March 2025)

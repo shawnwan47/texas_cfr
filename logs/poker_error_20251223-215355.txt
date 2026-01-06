@@ -1,0 +1,39 @@
+=== POKER GAME ERROR LOG ===
+Timestamp: 2025-12-23 21:53:55
+Error: State status not OK (StateStatus.HighBet)
+
+Stack trace:
+NoneType: None
+
+
+=== GAME STATE ===
+Stage: Stage.Flop
+Pot: $188.40
+Button position: Player 3
+Current player: Player 0
+Min bet: $65.05
+
+Community cards: 6♣ 9♥ 8♠
+
+=== PLAYER STATES ===
+Player 0: $157.30 - Bet: $35.90 - Active
+  Hand: K♦ 7♠
+Player 1: $128.15 - Bet: $65.05 - Active
+  Hand: 6♠ 6♦
+Player 2: $200.00 - Bet: $0.00 - Folded
+  Hand: A♦ 5♣
+Player 3: $200.00 - Bet: $0.00 - Folded
+  Hand: 3♥ 9♠
+Player 4: $128.15 - Bet: $65.05 - Active
+  Hand: A♠ 3♠
+Player 5: $198.00 - Bet: $0.00 - Folded
+  Hand: 4♣ 2♦
+
+=== ERROR-CAUSING ACTION ===
+Action: ActionEnum.Raise $128.15
+
+=== LEGAL ACTIONS ===
+[ActionEnum.Fold, ActionEnum.Call, ActionEnum.Raise]
+
+=== PREVIOUS ACTION ===
+Action: ActionEnum.Call

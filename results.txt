@@ -1,0 +1,5 @@
+Final performance: Average profit per game: 342.35
+
+Training Summary:
+Final loss: 249599818.666667
+Final average profit vs random: 346.86
