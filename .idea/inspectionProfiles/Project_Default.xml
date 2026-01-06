@@ -1,0 +1,25 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="transformers" />
+          <option value="sentencepiece" />
+          <option value="datasets" />
+          <option value="bitsandbytes" />
+          <option value="accelerate" />
+          <option value="pybind11" />
+          <option value="wandb" />
+          <option value="torchtext" />
+          <option value="scipy" />
+          <option value="matplotlib" />
+          <option value="configargparse" />
+          <option value="pynvml" />
+          <option value="netifaces" />
+          <option value="prl" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
