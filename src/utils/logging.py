@@ -18,7 +18,7 @@ def card_to_string(card):
     return f"{ranks[int(card.rank)]}{suits[int(card.suit)]}"
 
 def log_game_error(state: pkrs.State, action: pkrs.Action, error_msg: str, 
-                 card_converter: Callable = None) -> Optional[str]:
+                   card_converter: Callable = None) -> Optional[str]:
     """
     Log detailed error information to a file when a game state error occurs.
     

@@ -72,6 +72,24 @@ class EnhancedPokerNetwork(nn.Module):
         
         return action_logits, bet_size
 
+
+def get_legal_action_types(state):
+    """Get the legal action types for the current state."""
+    legal_action_types = []
+
+    # Check each action type
+    if pkrs.ActionEnum.Fold in state.legal_actions:
+        legal_action_types.append(0)
+
+    if pkrs.ActionEnum.Check in state.legal_actions or pkrs.ActionEnum.Call in state.legal_actions:
+        legal_action_types.append(1)
+
+    if pkrs.ActionEnum.Raise in state.legal_actions:
+        legal_action_types.append(2)
+
+    return legal_action_types
+
+
 class DeepCFRAgentWithOpponentModeling:
     def __init__(self, player_id=0, num_players=6, memory_size=300000, device='cpu'):
         self.player_id = player_id
@@ -268,22 +286,6 @@ class DeepCFRAgentWithOpponentModeling:
             else:
                 return pkrs.Action(pkrs.ActionEnum.Fold)
 
-    def get_legal_action_types(self, state):
-        """Get the legal action types for the current state."""
-        legal_action_types = []
-        
-        # Check each action type
-        if pkrs.ActionEnum.Fold in state.legal_actions:
-            legal_action_types.append(0)
-            
-        if pkrs.ActionEnum.Check in state.legal_actions or pkrs.ActionEnum.Call in state.legal_actions:
-            legal_action_types.append(1)
-            
-        if pkrs.ActionEnum.Raise in state.legal_actions:
-            legal_action_types.append(2)
-        
-        return legal_action_types
-    
     def extract_state_context(self, state):
         """
         Extract a simplified state context for opponent modeling.
@@ -417,7 +419,7 @@ class DeepCFRAgentWithOpponentModeling:
         
         # If it's the trained agent's turn
         if current_player == self.player_id:
-            legal_action_types = self.get_legal_action_types(state)
+            legal_action_types = get_legal_action_types(state)
             
             if not legal_action_types:
                 if VERBOSE:
@@ -733,7 +735,7 @@ class DeepCFRAgentWithOpponentModeling:
         Choose an action for the given state during actual play.
         Fixed to properly handle bet sizing according to poker rules.
         """
-        legal_action_types = self.get_legal_action_types(state)
+        legal_action_types = get_legal_action_types(state)
         
         if not legal_action_types:
             # Default to call if no legal actions

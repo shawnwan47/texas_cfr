@@ -6,15 +6,16 @@ import numpy as np
 import random
 import pokers
 from collections import deque
-from src.core.memory import PrioritizedMemory
+
+from core.memory import PrioritizedMemory
 from src.core.model import PokerNetwork, encode_state, VERBOSE
 from src.utils.settings import STRICT_CHECKING
 from src.utils.logging import log_game_error
 from src.utils.state_control import get_legal_action_types, action_type_to_pokers_action
 
-class DeepCFRAgent:
-    def __init__(self, player_id=0, num_players=2, memory_size=300000, device='cpu'):
-        self.player_id = player_id
+
+class SelfCFR:
+    def __init__(self, num_players=2, memory_size=300000, device='cpu'):
         self.num_players = num_players
         self.device = device
         
@@ -39,14 +40,12 @@ class DeepCFRAgent:
         # Regret normalization tracker
         self.max_regret_seen = 1.0
 
-    def cfr_traverse(self, state, iteration, opponents, depth=0):
+    def cfr_traverse(self, state, player_id, depth=0):
         """
         Traverse the game tree using external sampling MonteCarloCFR with continuous bet sizing.
         
         Args:
             state: Current game state
-            iteration: Current training iteration
-            opponents: List of opponent agents
             depth: Current recursion depth
             
         Returns:
@@ -61,14 +60,30 @@ class DeepCFRAgent:
 
         if state.final_state:
             # Return payoff for the trained agent
-            return state.players_state[self.player_id].reward
+            return state.players_state[0].reward
         # encode the state
+        current_player = state.current_player
         state_encoded = encode_state(state)
 
-        current_player = state.current_player
-        
         # If it's the trained agent's turn
-        if current_player == self.player_id:
+        if current_player != player_id:
+            # Let the random agent choose an action
+            action = self.choose_action(state)
+            new_state = state.apply_action(action)
+
+            # Check if the action was valid
+            if new_state.status != pokers.StateStatus.Ok:
+                log_file = log_game_error(state, action, f"State status not OK ({new_state.status})")
+                if STRICT_CHECKING:
+                    raise ValueError(
+                        f"State status not OK ({new_state.status}) from random agent. Details logged to {log_file}")
+                if VERBOSE:
+                    print(f"WARNING: Random agent made invalid action at depth {depth}. Status: {new_state.status}")
+                    print(f"Details logged to {log_file}")
+                return 0
+
+            return self.cfr_traverse(new_state, player_id, depth + 1)
+        else:
             legal_action_types = get_legal_action_types(state)
             
             if not legal_action_types:
@@ -122,7 +137,7 @@ class DeepCFRAgent:
                             print(f"Details logged to {log_file}")
                         continue  # Skip this action and try others in non-strict mode
                         
-                    action_values[action_type] = self.cfr_traverse(new_state, iteration, opponents, depth + 1)
+                    action_values[action_type] = self.cfr_traverse(new_state, player_id, depth + 1)
                 except Exception as e:
                     if VERBOSE:
                         print(f"ERROR in traversal for action {action_type}: {e}")
@@ -143,23 +158,18 @@ class DeepCFRAgent:
                 # Normalize and clip regret
                 normalized_regret = regret / max_abs_val
                 clipped_regret = np.clip(normalized_regret, -5.0, 5.0)
-                
-                # Apply scaling
-                scale_factor = np.sqrt(iteration) if iteration > 1 else 1.0  # Linear CFR
-                weighted_regret = clipped_regret * scale_factor
-                
+
                 # Store in prioritized memory with regret magnitude as priority
-                priority = abs(weighted_regret) + 0.01  # Add small constant to ensure non-zero priority
+                priority = abs(clipped_regret) + 0.01  # Add small constant to ensure non-zero priority
 
                 # For raise actions, store the bet size multiplier
                 self.regret_memory.add(
                     (state_encoded,
                      action_type,
                      bet_multiplier if action_type == 2 else 0.0,
-                     weighted_regret),
+                     clipped_regret),
                      priority
                 )
-            
             # Add to strategy memory
             strategy_full = np.zeros(self.num_actions)
             for a in legal_action_types:
@@ -168,36 +178,10 @@ class DeepCFRAgent:
             self.strategy_memory.append((
                 state_encoded,
                 strategy_full,
-                bet_multiplier if 2 in legal_action_types else 0.0,
-                iteration
+                bet_multiplier if 2 in legal_action_types else 0.0
             ))
             
             return ev
-            
-        # If it's another player's turn (opponents)
-        else:
-            try:
-                # Let the opponents choose an action
-                action = opponents[current_player].choose_action(state)
-                new_state = state.apply_action(action)
-                
-                # Check if the action was valid
-                if new_state.status != pokers.StateStatus.Ok:
-                    log_file = log_game_error(state, action, f"State status not OK ({new_state.status})")
-                    if STRICT_CHECKING:
-                        raise ValueError(f"State status not OK ({new_state.status}) from opponents. Details logged to {log_file}")
-                    if VERBOSE:
-                        print(f"WARNING: Random agent made invalid action at depth {depth}. Status: {new_state.status}")
-                        print(f"Details logged to {log_file}")
-                    return 0
-                    
-                return self.cfr_traverse(new_state, iteration, opponents, depth + 1)
-            except Exception as e:
-                if VERBOSE:
-                    print(f"ERROR in opponents traversal: {e}")
-                if STRICT_CHECKING:
-                    raise  # Re-raise in strict mode
-                return 0
 
     def train_regret_net(self, batch_size=128, epochs=3, beta_start=0.4, beta_end=1.0):
         """
@@ -208,7 +192,6 @@ class DeepCFRAgent:
         
         self.regret_net.train()
         total_loss = 0
-        check_frequency = 100
         
         # Calculate current beta for importance sampling
         progress = min(1.0, self.iteration / 10000)
@@ -220,7 +203,7 @@ class DeepCFRAgent:
             states, action_types, bet_sizes, regrets = zip(*batch)
             
             # [DEBUG 1] Log regret values in memory
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % 100 == 0 and epoch == 0:
                 regret_array = np.array(regrets)
                 print(f"[DEBUG-MEMORY] Regret stats: min={np.min(regret_array):.2f}, max={np.max(regret_array):.2f}, mean={np.mean(regret_array):.2f}")
             
@@ -235,7 +218,7 @@ class DeepCFRAgent:
             action_advantages, bet_size_predicts = self.regret_net(state_tensors)
             
             # [DEBUG 2] Log network raw outputs to identify explosion
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % 100 == 0 and epoch == 0:
                 with torch.no_grad():
                     max_adv = torch.max(action_advantages).item()
                     min_adv = torch.min(action_advantages).item()
@@ -245,7 +228,7 @@ class DeepCFRAgent:
             predicted_regrets = action_advantages.gather(1, action_type_tensors.unsqueeze(1)).squeeze(1)
             
             # [DEBUG 3] Log gathered predictions
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % 100 == 0 and epoch == 0:
                 with torch.no_grad():
                     max_predict = torch.max(predicted_regrets).item()
                     min_predict = torch.min(predicted_regrets).item()
@@ -257,7 +240,7 @@ class DeepCFRAgent:
             action_loss = F.smooth_l1_loss(predicted_regrets, regret_tensors, reduction='none')
             
             # [DEBUG 4] Log raw loss values before weighting
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % 100 == 0 and epoch == 0:
                 with torch.no_grad():
                     max_loss = torch.max(action_loss).item()
                     mean_loss = torch.mean(action_loss).item()
@@ -266,7 +249,7 @@ class DeepCFRAgent:
             weighted_action_loss = (action_loss * weight_tensors).mean()
             
             # [DEBUG 5] Log weighted loss
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % 100 == 0 and epoch == 0:
                 print(f"[DEBUG-WEIGHTED] Weighted action loss: {weighted_action_loss.item():.2f}")
                 
                 # Check for weight outliers
@@ -290,7 +273,7 @@ class DeepCFRAgent:
                     combined_loss = weighted_action_loss + 0.5 * weighted_bet_size_loss
                     
                     # [DEBUG 6] Log bet size loss
-                    if self.iteration % check_frequency == 0 and epoch == 0:
+                    if self.iteration % 100 == 0 and epoch == 0:
                         print(f"[DEBUG-BET] Weighted bet size loss: {weighted_bet_size_loss.item():.2f}")
                 else:
                     combined_loss = weighted_action_loss
@@ -298,7 +281,7 @@ class DeepCFRAgent:
                 combined_loss = weighted_action_loss
             
             # [DEBUG 7] Log final combined loss
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % 100 == 0 and epoch == 0:
                 print(f"[DEBUG-COMBINED] Combined loss before clipping: {combined_loss.item():.2f}")
             
             # Backward pass and optimize
@@ -306,7 +289,7 @@ class DeepCFRAgent:
             combined_loss.backward()
             
             # [DEBUG 8] Check for gradient explosion before clipping
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % 100 == 0 and epoch == 0:
                 total_grad_norm = 0
                 max_layer_norm = 0
                 max_layer_name = ""
@@ -326,7 +309,7 @@ class DeepCFRAgent:
             torch.nn.utils.clip_grad_norm_(self.regret_net.parameters(), max_norm=0.5)
             
             # [DEBUG 9] Check effect of gradient clipping
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % 100 == 0 and epoch == 0:
                 total_grad_norm = 0
                 for name, param in self.regret_net.named_parameters():
                     if param.grad is not None:
@@ -374,7 +357,7 @@ class DeepCFRAgent:
                     combined_errors = new_action_errors
                 
                 # [DEBUG 11] Check priority values
-                if self.iteration % check_frequency == 0 and epoch == 0:
+                if self.iteration % 100 == 0 and epoch == 0:
                     combined_errors_np = combined_errors.cpu().numpy()
                     max_priority = np.max(combined_errors_np) + 0.01
                     min_priority = np.min(combined_errors_np) + 0.01
@@ -477,9 +460,9 @@ class DeepCFRAgent:
         state_tensor = torch.FloatTensor(encode_state(state)).unsqueeze(0).to(self.device)
         
         with torch.no_grad():
-            logits, bet_size_pred = self.strategy_net(state_tensor)
+            logits, bet_predicts = self.strategy_net(state_tensor)
             probs = F.softmax(logits, dim=1)[0].cpu().numpy()
-            bet_size_multiplier = bet_size_pred[0][0].item()
+            bet_multiplier = bet_predicts[0][0].item()
         
         # Filter to only legal actions
         legal_probs = np.array([probs[a] for a in legal_action_types])
@@ -494,7 +477,7 @@ class DeepCFRAgent:
         
         # Use the predicted bet size for raise actions
         if action_type == 2:  # Raise
-            return action_type_to_pokers_action(action_type, state, bet_size_multiplier)
+            return action_type_to_pokers_action(action_type, state, bet_multiplier)
         else:
             return action_type_to_pokers_action(action_type, state)
 

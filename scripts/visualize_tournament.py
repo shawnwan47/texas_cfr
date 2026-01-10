@@ -22,11 +22,11 @@ def load_agent_from_checkpoint(checkpoint_path, player_id=0, device='cpu'):
     checkpoint = torch.load(checkpoint_path, map_location=device)
     
     # Load weights into the agent
-    agent.advantage_net.load_state_dict(checkpoint['advantage_net'])
+    agent.regret_net.load_state_dict(checkpoint['advantage_net'])
     agent.strategy_net.load_state_dict(checkpoint['strategy_net'])
     
     # Set the iteration count
-    agent.iteration_count = checkpoint.get('iteration', 0)
+    agent.iteration = checkpoint.get('iteration', 0)
     
     return agent
 
