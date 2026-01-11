@@ -208,7 +208,7 @@ class DeepCFRAgent:
         
         self.regret_net.train()
         total_loss = 0
-        check_frequency = 100
+        check_frequency = 10
         
         # Calculate current beta for importance sampling
         progress = min(1.0, self.iteration / 10000)
@@ -220,7 +220,7 @@ class DeepCFRAgent:
             states, action_types, bet_sizes, regrets = zip(*batch)
             
             # [DEBUG 1] Log regret values in memory
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % check_frequency == 0 :
                 regret_array = np.array(regrets)
                 print(f"[DEBUG-MEMORY] Regret stats: min={np.min(regret_array):.2f}, max={np.max(regret_array):.2f}, mean={np.mean(regret_array):.2f}")
             
@@ -232,20 +232,23 @@ class DeepCFRAgent:
             weight_tensors = torch.FloatTensor(weights).to(self.device)
             
             # Forward pass
-            action_advantages, bet_size_predicts = self.regret_net(state_tensors)
+            action_regrets, bet_predicts = self.regret_net(state_tensors)
             
             # [DEBUG 2] Log network raw outputs to identify explosion
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % check_frequency == 0 :
                 with torch.no_grad():
-                    max_adv = torch.max(action_advantages).item()
-                    min_adv = torch.min(action_advantages).item()
-                    print(f"[DEBUG-NETWORK] Network outputs: min={min_adv:.2f}, max={max_adv:.2f}")
+                    max_regret = torch.max(action_regrets).item()
+                    min_regret = torch.min(action_regrets).item()
+                    max_bet = torch.max(bet_predicts).item()
+                    min_bet = torch.min(bet_predicts).item()
+                    print(f"[DEBUG-NETWORK] Network outputs: min={min_regret:.2f}, max={max_regret:.2f}")
+                    print(f"[DEBUG-BET] Network outputs: min={min_bet:.2f}, max={max_bet:.2f}")
             
             # Compute action type loss (for all actions)
-            predicted_regrets = action_advantages.gather(1, action_type_tensors.unsqueeze(1)).squeeze(1)
+            predicted_regrets = action_regrets.gather(1, action_type_tensors.unsqueeze(1)).squeeze(1)
             
             # [DEBUG 3] Log gathered predictions
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % check_frequency == 0 :
                 with torch.no_grad():
                     max_predict = torch.max(predicted_regrets).item()
                     min_predict = torch.min(predicted_regrets).item()
@@ -257,7 +260,7 @@ class DeepCFRAgent:
             action_loss = F.smooth_l1_loss(predicted_regrets, regret_tensors, reduction='none')
             
             # [DEBUG 4] Log raw loss values before weighting
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % check_frequency == 0 :
                 with torch.no_grad():
                     max_loss = torch.max(action_loss).item()
                     mean_loss = torch.mean(action_loss).item()
@@ -266,7 +269,7 @@ class DeepCFRAgent:
             weighted_action_loss = (action_loss * weight_tensors).mean()
             
             # [DEBUG 5] Log weighted loss
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % check_frequency == 0 :
                 print(f"[DEBUG-WEIGHTED] Weighted action loss: {weighted_action_loss.item():.2f}")
                 
                 # Check for weight outliers
@@ -278,7 +281,7 @@ class DeepCFRAgent:
             raise_mask = (action_type_tensors == 2)
             if torch.any(raise_mask):
                 # Calculate loss for all bet sizes
-                all_bet_losses = F.smooth_l1_loss(bet_size_predicts, bet_size_tensors, reduction='none')
+                all_bet_losses = F.smooth_l1_loss(bet_predicts, bet_size_tensors, reduction='none')
                 
                 # Only count losses for raise actions, zero out others
                 masked_bet_losses = all_bet_losses * raise_mask.float().unsqueeze(1)
@@ -290,7 +293,7 @@ class DeepCFRAgent:
                     combined_loss = weighted_action_loss + 0.5 * weighted_bet_size_loss
                     
                     # [DEBUG 6] Log bet size loss
-                    if self.iteration % check_frequency == 0 and epoch == 0:
+                    if self.iteration % check_frequency == 0 :
                         print(f"[DEBUG-BET] Weighted bet size loss: {weighted_bet_size_loss.item():.2f}")
                 else:
                     combined_loss = weighted_action_loss
@@ -298,7 +301,7 @@ class DeepCFRAgent:
                 combined_loss = weighted_action_loss
             
             # [DEBUG 7] Log final combined loss
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % check_frequency == 0 :
                 print(f"[DEBUG-COMBINED] Combined loss before clipping: {combined_loss.item():.2f}")
             
             # Backward pass and optimize
@@ -306,7 +309,7 @@ class DeepCFRAgent:
             combined_loss.backward()
             
             # [DEBUG 8] Check for gradient explosion before clipping
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % check_frequency == 0 :
                 total_grad_norm = 0
                 max_layer_norm = 0
                 max_layer_name = ""
@@ -323,10 +326,10 @@ class DeepCFRAgent:
                 print(f"[DEBUG-GRAD] Largest layer grad: {max_layer_name} = {max_layer_norm:.2f}")
             
             # Apply gradient clipping (your existing code)
-            torch.nn.utils.clip_grad_norm_(self.regret_net.parameters(), max_norm=0.5)
+            torch.nn.utils.clip_grad_norm_(self.regret_net.parameters(), max_norm=1.0)
             
             # [DEBUG 9] Check effect of gradient clipping
-            if self.iteration % check_frequency == 0 and epoch == 0:
+            if self.iteration % check_frequency == 0 :
                 total_grad_norm = 0
                 for name, param in self.regret_net.named_parameters():
                     if param.grad is not None:
@@ -339,7 +342,7 @@ class DeepCFRAgent:
             self.regret_optimizer.step()
             
             # [DEBUG 10] Check for extreme parameter values after update
-            if self.iteration % 1000 == 0 and epoch == 0:
+            if self.iteration % 1000 == 0 :
                 with torch.no_grad():
                     max_param_val = -float('inf')
                     max_param_name = ""
@@ -365,7 +368,7 @@ class DeepCFRAgent:
                     raise_indices = torch.where(raise_mask)[0]
                     for i in raise_indices:
                         new_bet_errors[i] = F.smooth_l1_loss(
-                            bet_size_predicts[i], bet_size_tensors[i], reduction='mean'
+                            bet_predicts[i], bet_size_tensors[i], reduction='mean'
                         )
                     
                     # Combined error with smaller weight for bet sizing
@@ -374,7 +377,7 @@ class DeepCFRAgent:
                     combined_errors = new_action_errors
                 
                 # [DEBUG 11] Check priority values
-                if self.iteration % check_frequency == 0 and epoch == 0:
+                if self.iteration % check_frequency == 0 :
                     combined_errors_np = combined_errors.cpu().numpy()
                     max_priority = np.max(combined_errors_np) + 0.01
                     min_priority = np.min(combined_errors_np) + 0.01
@@ -452,7 +455,7 @@ class DeepCFRAgent:
             combined_loss.backward()
             
             # Apply gradient clipping
-            torch.nn.utils.clip_grad_norm_(self.strategy_net.parameters(), max_norm=0.5)
+            torch.nn.utils.clip_grad_norm_(self.strategy_net.parameters(), max_norm=1.0)
             
             self.strategy_optimizer.step()
             
@@ -501,12 +504,12 @@ class DeepCFRAgent:
     def save_model(self, path_prefix):
         """Save the model to disk."""
         torch.save({
-            'advantage_net': self.regret_net.state_dict(),
+            'regret_net': self.regret_net.state_dict(),
             'strategy_net': self.strategy_net.state_dict()
         }, f"{path_prefix}_iteration_{self.iteration}.pt")
         
     def load_model(self, path):
         """Load the model from disk."""
         checkpoint = torch.load(path)
-        self.regret_net.load_state_dict(checkpoint['advantage_net'])
+        self.regret_net.load_state_dict(checkpoint['regret_net'])
         self.strategy_net.load_state_dict(checkpoint['strategy_net'])

@@ -1,17 +1,15 @@
 # src/training/train.py
-import time
 import os
+import time
 import random
 import glob
 import torch
-import numpy as np
 import pokers
 from torch.utils.tensorboard import SummaryWriter
 from src.core.deep_cfr import DeepCFRAgent
-from src.core.model import set_verbose, encode_state
+from src.core.model import set_verbose
 from src.utils.logging import log_game_error
 from src.utils.settings import STRICT_CHECKING, set_strict_checking
-from src.utils.state_control import get_legal_action_types
 from src.agents.random_agent import RandomAgent
 
 
@@ -104,7 +102,7 @@ def evaluate(agent_eval, opponents_eval, num_games=500):
                 button=game % num_players,  # Rotate button for fairness
                 sb=1,
                 bb=2,
-                stake=200.0,
+                stake=500.0,
                 seed=game + 42195 # Using different seeds than training
             )
 
@@ -186,7 +184,7 @@ def train_cfr_oppo(agent_train, opponents_choose, iterations, traversals, save_d
                 button=traversal % num_players,
                 sb=1,
                 bb=2,
-                stake=200.0,
+                stake=500.0,
                 seed=random.randint(0, traversal + 42195)
             )
 
@@ -197,7 +195,7 @@ def train_cfr_oppo(agent_train, opponents_choose, iterations, traversals, save_d
         traversal_time = time.time() - start_time
         writer.add_scalar('Time/Traversal', traversal_time, iteration)
 
-        # Train advantage network
+        # Train regret network
         print("Training cfr network...")
         adv_loss = agent_train.train_regret_net()
         losses.append(adv_loss)
@@ -316,14 +314,14 @@ if __name__ == "__main__":
         log_dir=args.log_dir
     )
 
-    print(f"Checkpoint saved to {args.save_dir}")
-    model_path = f"{args.save_dir}/cfr{suffix}.pt"
+    model_path = f"{args.save_dir}/cfr{suffix}"
     agent.save_model(model_path)
     print(f"Model saved to {model_path}")
     print("\nTraining Summary:")
     print(f"Final loss: {losses[-1]:.6f}")
     if profits:
         print(f"Final average profit: {profits[-1]:.2f}")
+
     print("\nTo view training progress:")
     print(f"Run: tensorboard --logdir={args.log_dir}")
     print("Then open http://localhost:6006 in your browser")

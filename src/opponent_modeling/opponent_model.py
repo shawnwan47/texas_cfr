@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import pokers
 from collections import deque
 
 class ActionHistoryEncoder(nn.Module):
@@ -210,7 +211,7 @@ class OpponentModelingSystem:
             if 0 <= prev_action_type < 4:
                 context[9 + prev_action_type] = 1
             
-            if prev_action_type == int(pkrs.ActionEnum.Raise):
+            if prev_action_type == int(pokers.ActionEnum.Raise):
                 context[13] = state.from_action.action.amount / initial_stake
         
         # Min bet relative to pot
@@ -225,7 +226,7 @@ class OpponentModelingSystem:
         context[16] = current_bet / max(1.0, state.pot)
         
         # Add bet size features
-        if state.from_action is not None and state.from_action.action.action == pkrs.ActionEnum.Raise:
+        if state.from_action is not None and state.from_action.action.action == pokers.ActionEnum.Raise:
             # Normalize bet size as a fraction of the pot
             normalized_bet_size = state.from_action.action.amount / max(1.0, state.pot)
             context[20] = normalized_bet_size

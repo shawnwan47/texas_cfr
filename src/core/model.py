@@ -1,6 +1,8 @@
 # src/code/model.py
+import torch
 import torch.nn as nn
 import numpy as np
+import torch.nn.init as init
 
 VERBOSE = False
 
@@ -112,45 +114,86 @@ def encode_state(state, player_id=0):
     # Concatenate all features
     return np.concatenate(encoded)
 
+
 class PokerNetwork(nn.Module):
-    """Poker network with continuous bet sizing capabilities."""
+    """Poker network with continuous bet sizing capabilities (数值稳定版)."""
+
     def __init__(self, input_size=512, hidden_size=256, num_actions=3):
         super().__init__()
-        # Shared feature extraction layers
+        # 1. 共享特征提取层：加入LayerNorm稳定中间层数值，避免梯度爆炸
         self.base = nn.Sequential(
             nn.Linear(input_size, hidden_size),
+            nn.LayerNorm(hidden_size),  # 关键：层归一化，稳定ReLU输入分布
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size),
+            nn.LayerNorm(hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size),
+            nn.LayerNorm(hidden_size),
             nn.ReLU()
         )
-        # Action type prediction (fold, check/call, raise)
+
+        # 2. 动作类型预测头（fold/check/call/raise）
         self.action_head = nn.Linear(hidden_size, num_actions)
-        # Continuous bet sizing prediction
+
+        # 3. 连续下注尺寸预测头：优化激活链，避免输出漂移
         self.sizing_head = nn.Sequential(
             nn.Linear(hidden_size, hidden_size // 2),
+            nn.LayerNorm(hidden_size // 2),  # 小层也加归一化，稳定Tanh输入
             nn.Tanh(),
             nn.Linear(hidden_size // 2, 1),
-            nn.Sigmoid()  # Output between 0-1
+            nn.Sigmoid()  # 输出约束在0-1，后续缩放更可控
         )
-    
+
+        # 4. 关键：定制化参数初始化（从源头避免数值爆炸）
+        self._init_weights()
+
+    def _init_weights(self):
+        """
+        定制化初始化策略：针对不同激活函数适配初始化，避免初始输出/梯度爆炸
+        - ReLU层：Kaiming Normal（适配ReLU的均值/方差）
+        - Tanh/Sigmoid层：Xavier Normal（适配对称激活函数）
+        - 输出层：小权重初始化，避免初始输出过大
+        """
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                # 判断所属层，定制初始化
+                if any([isinstance(p, nn.ReLU) for p in m._forward_pre_hooks.values()]):
+                    # ReLU前的Linear层：Kaiming Normal（修正ReLU的方差衰减）
+                    init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+                elif any([isinstance(p, nn.Tanh) for p in m._forward_pre_hooks.values()]):
+                    # Tanh前的Linear层：Xavier Normal（保持均值/方差稳定）
+                    init.xavier_normal_(m.weight, gain=init.calculate_gain('tanh'))
+                elif m in [self.action_head, self.sizing_head[-2]]:
+                    # 输出层：小权重初始化（避免初始输出极端）
+                    init.normal_(m.weight, mean=0.0, std=0.01)
+                # 偏置项默认初始化为0（或小常数，避免偏移过大）
+                if m.bias is not None:
+                    init.constant_(m.bias, 0.0)
+
     def forward(self, x):
         """
-        Forward pass through the network.
-        
+        Forward pass with numerical stability guarantees.
+
         Args:
-            x: The state representation tensor
-            opponent_features: Optional opponent modeling features (ignored in base class)
+            x: The state representation tensor (shape: [batch, input_size])
 
         Returns:
             Tuple of (action_logits, bet_size_prediction)
         """
-        # Process base features
+        # 确保输入是float32（避免float16下溢/上溢）
+        x = x.to(torch.float32)
+
+        # 1. 基础特征提取（已做层归一化，数值稳定）
         features = self.base(x)
-        
-        # Output action logits and bet sizing
+
+        # 2. 动作logits：加入clamp避免极端值（防御性措施）
         action_logits = self.action_head(features)
-        bet_size = 0.1 + 2.9 * self.sizing_head(features)
-        
+        action_logits = torch.clamp(action_logits, min=-10.0, max=10.0)  # 限制logits范围
+
+        # 3. 下注尺寸：缩放后再clamp，确保在合理区间（0.1~3.0）
+        bet_size_raw = self.sizing_head(features)
+        bet_size = 0.1 + 2.9 * bet_size_raw
+        bet_size = torch.clamp(bet_size, min=0.1, max=3.0)  # 防止极端值
+
         return action_logits, bet_size
